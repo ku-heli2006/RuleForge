@@ -1,0 +1,111 @@
+const words = trimmed.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) || [];export interface AdvisoryCheckResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+const KNOWN_FIELDS = [
+  'customerTier',
+  'orderAmount',
+  'creditScore',
+  'customerAge',
+  'region',
+  'isFirstOrder',
+];
+
+const VALID_TIERS = ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'];
+
+/**
+ * Advisory client-side syntax validator.
+ * IMPORTANT: The backend Z3 solver/compiler remains the authoritative validator.
+ */
+export function validateRuleExpressionAdvisory(expression: string): AdvisoryCheckResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return {
+      valid: false,
+      errors: ['Condition expression cannot be empty.'],
+      warnings: [],
+    };
+  }
+
+  // 1. Parentheses balance check
+  let parenDepth = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === '(') parenDepth++;
+    if (trimmed[i] === ')') parenDepth--;
+    if (parenDepth < 0) {
+      errors.push(`Unmatched closing parenthesis at position ${i + 1}.`);
+      break;
+    }
+  }
+  if (parenDepth > 0) {
+    errors.push(`Unclosed parenthesis. Expected ${parenDepth} closing ')' character(s).`);
+  }
+
+  // 2. Check for invalid operator typos (e.g. single '=' instead of '==', '&&' instead of 'AND')
+  if (trimmed.includes('&&')) {
+    warnings.push("Use 'AND' keyword instead of '&&'.");
+  }
+  if (trimmed.includes('||')) {
+    warnings.push("Use 'OR' keyword instead of '||'.");
+  }
+  if (/(?<![<>=!])=(?!=)/.test(trimmed)) {
+    errors.push("Single '=' assignment operator detected. Use '==' for equality comparison.");
+  }
+
+  
+  // 3. Check for unknown identifiers
+  const expressionWithoutStrings = trimmed.replace(/"[^"]*"|'[^']*'/g, ' ');
+  const words = expressionWithoutStrings.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
+
+  for (const word of words) {
+    const isKeyword = ['AND', 'OR', 'TRUE', 'FALSE', 'true', 'false'].includes(word);
+    const isTier = VALID_TIERS.includes(word);
+    const isField = KNOWN_FIELDS.includes(word);
+    const isCommonRegion = ['US_EAST', 'US_WEST', 'EU_WEST', 'APAC', 'GLOBAL'].includes(word);
+
+    if (!isKeyword && !isTier && !isField && !isCommonRegion) {
+      warnings.push(`Unrecognized identifier '${word}'. Verify that this attribute exists in the schema.`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+export interface SyntaxToken {
+  type: 'field' | 'operator' | 'value' | 'keyword' | 'paren' | 'text';
+  text: string;
+}
+
+export function tokenizeExpression(expression: string): SyntaxToken[] {
+  const regex = /(\bAND\b|\bOR\b|==|!=|>=|<=|>|<|\(|\)|"[^"]*"|'[^']*'|\d+(?:\.\d+)?|\b[A-Z_]{3,}\b|\b[a-zA-Z_][a-zA-Z0-9_]*\b|\s+)/g;
+  const tokens: SyntaxToken[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(expression)) !== null) {
+    const text = match[0];
+    if (/^\s+$/.test(text)) {
+      tokens.push({ type: 'text', text });
+    } else if (text === 'AND' || text === 'OR') {
+      tokens.push({ type: 'keyword', text });
+    } else if (['==', '!=', '>=', '<=', '>', '<'].includes(text)) {
+      tokens.push({ type: 'operator', text });
+    } else if (text === '(' || text === ')') {
+      tokens.push({ type: 'paren', text });
+    } else if (KNOWN_FIELDS.includes(text)) {
+      tokens.push({ type: 'field', text });
+    } else {
+      tokens.push({ type: 'value', text });
+    }
+  }
+
+  return tokens;
+}

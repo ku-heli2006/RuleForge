@@ -1,0 +1,5 @@
+# Backtesting design
+
+`ds-q3-prod-historical` is a seeded, synthetic, 500-record dataset generated with a fixed random seed. Each record is replayed against both immutable versions using the ordinary evaluator. Filters may constrain region and customer tier. The synchronous endpoint returns a completed job with changed/unchanged counts, outcome distributions, tier and region summaries, estimated discount-payout difference, and changed records. Evaluation requests are not persisted by default to avoid unbounded event storage.
+
+The payout difference per record is `(candidateDiscount - baselineDiscount) * orderAmount / 100`, rounded to two currency decimals with `HALF_UP`. It is a modeled discount-cost delta, not profit. Job metadata and JSON summary are persisted, including the fixed dataset hash and ruleset version IDs. CSV quotes fields and prefixes formula-leading text values. The current demo bounds the dataset at 500 rows; asynchronous processing and external dataset upload are not implemented.
